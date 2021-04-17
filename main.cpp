@@ -10,78 +10,130 @@
 
 using namespace std;
 /* data structure */
-typedef enum {
-    busy,
-    dwrite,
-    old
-} buf_stat_t;
+#define BNUM 5
+#define BSIZE 64*1024
+
+// validならキャッシュ済み、validでないならディスクから読みvalidをセット
+#define B_VALID (1<<0)
+// dirtyならdiskに書き出し、dirtyはクリア
+#define B_DIRTY (1<<1)
 
 typedef struct buffer {
     uint8_t id;
     uint8_t dev_no;
     uint8_t blk_no;
-    buf_stat_t stat;
-    struct buffer *free_next;
-    struct buffer *free_prev;
-    struct buffer *hash_next;
-    struct buffer *hash_prev;
+    uint16_t refcnt;
+    uint8_t flags;
+    uint8_t data[BSIZE];
+    struct buffer *next;
+    struct buffer *prev;
 } BUF;
 
 /* function */
-void create_pool(BUF **first, size_t size);
-void show_buf(BUF *first);
+void binit();
+BUF* bget(uint8_t dev_no, uint8_t blk_no);
+BUF* bread(uint8_t dev_no, uint8_t blk_no);
+void bwrite(BUF *bp);
+void brel(BUF *bp);
 
-BUF* getblk(uint8_t dev_no, uint8_t blk_no);
-void brelese(BUF *buf);
+void show_buf();
 
 /* global variable */
-BUF *bfree_list = NULL;
-BUF hash_que[5] = {};
+BUF *buf_head = NULL;
 
 /* code */
-void show_buf(BUF *first) {
-    BUF *temp = first;
-    int count = 0;
-    while (1) {
-        printf("id    :%5lu\n", temp->id);
-        printf("dev_no:%5lu\n", temp->dev_no);
-        printf("blk_no:%5lu\n", temp->blk_no);
-        printf("free_next:%p\n", temp);
-        printf("free_next:%p\n", temp->free_next);
-        printf("free_prev:%p\n", temp->free_prev);
-        if (temp->free_next == first) {
-            break;
-        }
-        temp = temp->free_next;
+void show_buf() {
+    cout << "hoge" << endl;
+    printf("buf_head:%p\n", buf_head);
+
+    for (BUF *bp = buf_head->next; bp != buf_head; bp = bp->next) {
+        printf("id    :%5lu\n", bp->id);
+        printf("dev_no:%5lu\n", bp->dev_no);
+        printf("blk_no:%5lu\n", bp->blk_no);
+        printf("here:%p\n", bp);
+        printf("next:%p\n", bp->next);
+        printf("prev:%p\n", bp->prev);
     }
 }
 
-void create_buf_pool(BUF **first, size_t size) {
-    BUF *temp = NULL;
-    for (size_t i = 0; i < size; i++){
+void binit() {
+    BUF *bp = NULL;
+    BUF **first = &buf_head;
+    for (size_t i = 0; i < BNUM + 1; i++){
+        cout << i << endl;
         BUF *new_buf = (BUF *)new BUF[1];
         new_buf->id = i;
+        new_buf->flags = 0;
         if (*first == NULL) {
             *first = new_buf;
-            temp = new_buf;
-            new_buf->free_next = new_buf;
-            new_buf->free_prev = new_buf;
-            new_buf->free_next = new_buf;
-            new_buf->free_prev = new_buf;
+            bp = new_buf;
+            new_buf->next = new_buf;
+            new_buf->prev = new_buf;
         } else {
-            temp->free_next = new_buf;
-            temp->hash_next = new_buf;
-            new_buf->free_next = (*first);
-            new_buf->hash_next = (*first);
-            new_buf->free_prev = temp;
-            new_buf->hash_prev = temp;
-            temp = new_buf;
+            bp->next = new_buf;
+            new_buf->next = (*first);
+            new_buf->prev = bp;
+            bp = new_buf;
         }
+    }
+}
+
+BUF* bget(uint8_t dev_no, uint8_t blk_no) {
+    // 先頭から探します
+    for (BUF *bp = buf_head->next; bp != buf_head; bp = bp->next) {
+        if (bp->dev_no == dev_no && bp->blk_no == blk_no) {
+            bp->refcnt++;
+            return bp;
+        }
+    }
+
+    // なかった
+    // うしろからさがします（LRU意識）
+    for (BUF *bp = buf_head->prev; bp != buf_head; bp = bp->prev) {
+        if ((bp->flags & B_DIRTY) == 0 && bp->refcnt == 0) {
+            bp->dev_no = dev_no;
+            bp->blk_no = blk_no;
+            bp->refcnt = 1;
+            bp->flags = 0;
+            return bp;
+        }
+    }
+
+    // あまりなし
+    exit(-1);
+}
+
+BUF* bread(uint8_t dev_no, uint8_t blk_no) {
+    BUF *bp = bget(dev_no, blk_no);
+    if (bp->flags & B_VALID == 0) {
+        // read from disk
+    }
+    return bp;
+}
+
+void bwrite(BUF *bp) {
+    if (bp->flags & B_DIRTY) {
+        bp->flags &= ~B_DIRTY;
+        // write to disk
+    }
+    bp->flags |= B_VALID;
+}
+
+void brel(BUF *bp) {
+    bp->refcnt--;
+    // LRU
+    if (bp->refcnt == 0) {
+        bp->prev->next = bp->next;
+        bp->next->prev = bp->prev;
+        bp->next = buf_head->next;
+        bp->prev = buf_head;
+        buf_head->next->prev = bp;
+        buf_head->next = bp;
     }
 }
 
 int main (int argc, char* argv[]) {
-    create_buf_pool(&bfree_list, 5);
-    show_buf(bfree_list);
+    binit();
+    show_buf();
     return 0;
 }
