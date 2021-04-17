@@ -61,7 +61,6 @@ void create_buf_pool(BUF **first, size_t size) {
     for (size_t i = 0; i < size; i++){
         BUF *new_buf = (BUF *)new BUF[1];
         new_buf->id = i;
-        cout << i << endl;
         if (*first == NULL) {
             *first = new_buf;
             temp = new_buf;
